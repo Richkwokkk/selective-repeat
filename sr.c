@@ -222,12 +222,12 @@ void A_timerinterrupt(void)
   }
 }
 
-
-
 /* the following routine will be called once (only) before any other */
 /* entity A routines are called. You can use it to do any initialization */
 void A_init(void)
 {
+  int i;
+
   /* initialise A's window, buffer and sequence number */
   A_nextseqnum = 0;  /* A starts with seq num 0, do not change this */
   windowfirst = 0;
@@ -236,6 +236,12 @@ void A_init(void)
 		     so initially this is set to -1
 		   */
   windowcount = 0;
+
+  /* Initialize acked array */
+  for (i = 0; i < WINDOWSIZE; i++) {
+    acked[i] = false;
+    timer_ids[i] = NOTINUSE;
+  }
 }
 
 
