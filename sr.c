@@ -196,20 +196,31 @@ else
 void A_timerinterrupt(void)
 {
   int i;
+  int buf_index;
+  bool found_unacked = false;
 
   if (TRACE > 0)
     printf("----A: time out,resend packets!\n");
 
-  for(i=0; i<windowcount; i++) {
-
-    if (TRACE > 0)
-      printf ("---A: resending packet %d\n", (buffer[(windowfirst+i) % WINDOWSIZE]).seqnum);
-
-    tolayer3(A,buffer[(windowfirst+i) % WINDOWSIZE]);
-    packets_resent++;
-    if (i==0) starttimer(A,RTT);
+  /* In SR, find the earliest unACKed packet and resend just that one */
+  for (i = 0; i < windowcount; i++) {
+    buf_index = (windowfirst + i) % WINDOWSIZE;
+    if (!acked[buf_index]) {
+      if (TRACE > 0)
+        printf ("---A: resending packet %d\n", (buffer[(windowfirst+i) % WINDOWSIZE]).seqnum);
+      
+      tolayer3(A, buffer[buf_index]);
+      packets_resent++;
+      found_unacked = true;
+      break;
+    }
   }
-}       
+
+  /* Restart timer if we still have unacknowledged packets */
+  if (found_unacked) {
+    starttimer(A, RTT);
+  }
+}
 
 
 
