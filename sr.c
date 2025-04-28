@@ -245,65 +245,113 @@ void A_init(void)
 }
 
 
-
 /********* Receiver (B)  variables and procedures ************/
 
 static int expectedseqnum; /* the sequence number expected next by the receiver */
 static int B_nextseqnum;   /* the sequence number for the next packets sent by B */
-
+static struct pkt rcv_buffer[WINDOWSIZE]; /* buffer for out-of-order packets */
+static bool rcv_acked[WINDOWSIZE];        /* tracks which packets are in the buffer */
+static int rcv_base;                      /* base of the receive window */
 
 /* called from layer 3, when a packet arrives for layer 4 at B*/
 void B_input(struct pkt packet)
 {
   struct pkt sendpkt;
   int i;
+  int packet_index;
 
-  /* if not corrupted and received packet is in order */
-  if  ( (!IsCorrupted(packet))  && (packet.seqnum == expectedseqnum) ) {
-    if (TRACE > 0)
-      printf("----B: packet %d is correctly received, send ACK!\n",packet.seqnum);
-    packets_received++;
+  /* if packet is not corrupted */
+  if (!IsCorrupted(packet)) {
+    /* Check if the seqnum is within our receive window */
+    bool in_window = false;
+    int rcv_last = (rcv_base + WINDOWSIZE - 1) % SEQSPACE;
 
-    /* deliver to receiving application */
-    tolayer5(B, packet.payload);
+    if ((rcv_base <= rcv_last && packet.seqnum >= rcv_base && packet.seqnum <= rcv_last) ||
+        (rcv_base > rcv_last && (packet.seqnum >= rcv_base || packet.seqnum <= rcv_last))) {
+      in_window = true;
+    }
 
-    /* send an ACK for the received packet */
-    sendpkt.acknum = expectedseqnum;
+    if (in_window) {
+      /* SR: Accept packet in window and send ACK for it */
+      if (TRACE > 0)
+        printf("----B: packet %d is correctly received, send ACK!\n", packet.seqnum);
 
-    /* update state variables */
-    expectedseqnum = (expectedseqnum + 1) % SEQSPACE;        
+      /* Buffer the packet if not already received */
+      packet_index = (packet.seqnum - rcv_base + SEQSPACE) % SEQSPACE;
+      if (packet_index < WINDOWSIZE && !rcv_acked[packet_index]) {
+        rcv_buffer[packet_index] = packet;
+        rcv_acked[packet_index] = true;
+        packets_received++;
+      }
+
+      /* Deliver in-order packets to layer 5 */
+      while (rcv_acked[0]) {
+        tolayer5(B, rcv_buffer[0].payload);
+
+        /* Slide window */
+        for (i = 0; i < WINDOWSIZE - 1; i++) {
+          rcv_buffer[i] = rcv_buffer[i + 1];
+          rcv_acked[i] = rcv_acked[i + 1];
+        }
+
+        /* Clear the last element */
+        rcv_acked[WINDOWSIZE - 1] = false;
+
+        /* Advance the receive base */
+        rcv_base = (rcv_base + 1) % SEQSPACE;
+      }
+
+      /* send an ACK for the received packet */
+      sendpkt.acknum = expectedseqnum;     
+    }
+    else {
+      /* Packet is outside our window - could be a duplicate */
+      if (TRACE > 0) 
+        printf("----B: packet corrupted or not expected sequence number, resend ACK!\n");
+
+      /* For SR, still ACK this packet (even if it's before our window) */
+      sendpkt.acknum = packet.seqnum;
+    }
   }
   else {
-    /* packet is corrupted or out of order resend last ACK */
-    if (TRACE > 0) 
+    /* Packet is corrupted */
+    if (TRACE > 0)
       printf("----B: packet corrupted or not expected sequence number, resend ACK!\n");
-    if (expectedseqnum == 0)
-      sendpkt.acknum = SEQSPACE - 1;
-    else
-      sendpkt.acknum = expectedseqnum - 1;
+
+    /* No valid ACK to send */
+    sendpkt.acknum = NOTINUSE;
   }
 
   /* create packet */
   sendpkt.seqnum = B_nextseqnum;
   B_nextseqnum = (B_nextseqnum + 1) % 2;
-    
+
   /* we don't have any data to send.  fill payload with 0's */
-  for ( i=0; i<20 ; i++ ) 
-    sendpkt.payload[i] = '0';  
+  for (i = 0; i < 20; i++) {
+    sendpkt.payload[i] = '0';
 
   /* computer checksum */
-  sendpkt.checksum = ComputeChecksum(sendpkt); 
+  sendpkt.checksum = ComputeChecksum(sendpkt);
 
   /* send out packet */
-  tolayer3 (B, sendpkt);
+  tolayer3(B, sendpkt);
+  }
 }
 
 /* the following routine will be called once (only) before any other */
 /* entity B routines are called. You can use it to do any initialization */
 void B_init(void)
 {
+  int i;
+
   expectedseqnum = 0;
   B_nextseqnum = 1;
+  rcv_base = 0;
+
+  /* Initialize receiver buffer */
+  for (i = 0; i < WINDOWSIZE; i++) {
+    rcv_acked[i] = false;
+  }
 }
 
 /******************************************************************************
