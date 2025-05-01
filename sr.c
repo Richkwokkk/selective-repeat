@@ -226,7 +226,6 @@ void A_init(void)
 
 /********* Receiver (B)  variables and procedures ************/
 
-static int expectedseqnum; /* the sequence number expected next by the receiver */
 static int B_nextseqnum;   /* the sequence number for the next packets sent by B */
 static struct pkt rcv_buffer[WINDOWSIZE]; /* buffer for out-of-order packets */
 static bool rcv_acked[WINDOWSIZE];        /* tracks which packets are in the buffer */
@@ -241,10 +240,10 @@ void B_input(struct pkt packet)
 
   /* if packet is not corrupted */
   if (!IsCorrupted(packet)) {
-    /* Check if the seqnum is within our receive window */
-    bool in_window = false;
     int rcv_last = (rcv_base + WINDOWSIZE - 1) % SEQSPACE;
 
+    /* Check if the seqnum is within our receive window */ 
+    bool in_window = false;
     if ((rcv_base <= rcv_last && packet.seqnum >= rcv_base && packet.seqnum <= rcv_last) ||
         (rcv_base > rcv_last && (packet.seqnum >= rcv_base || packet.seqnum <= rcv_last))) {
       in_window = true;
@@ -254,36 +253,25 @@ void B_input(struct pkt packet)
       /* SR: Accept packet in window and send ACK for it */
       if (TRACE > 0)
         printf("----B: packet %d is correctly received, send ACK!\n", packet.seqnum);
+      packets_received++;
 
       /* Buffer the packet if not already received */
-      packet_index = (packet.seqnum - rcv_base + SEQSPACE) % SEQSPACE;
-      if (packet_index < WINDOWSIZE && !rcv_acked[packet_index]) {
-        rcv_buffer[packet_index] = packet;
-        rcv_acked[packet_index] = true;
-        packets_received++;
-      }
+      packet_index = packet.seqnum % WINDOWSIZE;
+      rcv_buffer[packet_index] = packet;
+      rcv_acked[packet_index] = true;
 
-      /* Deliver in-order packets to layer 5 */
-      while (rcv_acked[0]) {
-        tolayer5(B, rcv_buffer[0].payload);
-
-        /* Slide window */
-        for (i = 0; i < WINDOWSIZE - 1; i++) {
-          rcv_buffer[i] = rcv_buffer[i + 1];
-          rcv_acked[i] = rcv_acked[i + 1];
+      if (packet.seqnum == rcv_base) {
+        while (rcv_acked[rcv_base % WINDOWSIZE]) {
+          /* Deliver in-order packets to layer 5 */
+          tolayer5(B, rcv_buffer[rcv_base % WINDOWSIZE].payload);
+          rcv_acked[rcv_base % WINDOWSIZE] = false;
+          rcv_base = (rcv_base + 1) % SEQSPACE;
         }
-
-        /* Clear the last element */
-        rcv_acked[WINDOWSIZE - 1] = false;
-
-        /* Advance the receive base */
-        rcv_base = (rcv_base + 1) % SEQSPACE;
       }
 
       /* send an ACK for the received packet */
-      sendpkt.acknum = expectedseqnum;     
-    }
-    else {
+      sendpkt.acknum = packet.seqnum;     
+    } else {
       /* Packet is outside our window - could be a duplicate */
       if (TRACE > 0) 
         printf("----B: packet corrupted or not expected sequence number, resend ACK!\n");
@@ -291,14 +279,16 @@ void B_input(struct pkt packet)
       /* For SR, still ACK this packet (even if it's before our window) */
       sendpkt.acknum = packet.seqnum;
     }
-  }
-  else {
+  } else {
     /* Packet is corrupted */
     if (TRACE > 0)
       printf("----B: packet corrupted or not expected sequence number, resend ACK!\n");
 
     /* No valid ACK to send */
-    sendpkt.acknum = NOTINUSE;
+    if (rcv_base == 0)
+      sendpkt.acknum = SEQSPACE - 1;
+    else
+      sendpkt.acknum = rcv_base - 1;
   }
 
   /* create packet */
@@ -323,8 +313,7 @@ void B_init(void)
 {
   int i;
 
-  expectedseqnum = 0;
-  B_nextseqnum = 1;
+  B_nextseqnum = 0;
   rcv_base = 0;
 
   /* Initialize receiver buffer */
