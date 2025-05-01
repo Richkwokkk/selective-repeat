@@ -5,7 +5,7 @@
 #include "sr.h"
 
 /* ******************************************************************
-   Go Back N protocol.  Adapted from J.F.Kurose
+   Selective Repeat protocol.  Adapted from J.F.Kurose
    ALTERNATING BIT AND GO-BACK-N NETWORK EMULATOR: VERSION 1.2  
 
    Network properties:
@@ -19,7 +19,7 @@
    Modifications: 
    - removed bidirectional GBN code and other code not used by prac. 
    - fixed C style to adhere to current programming style
-   - added GBN implementation
+   - modified GBN implementation for Selective Repeat
 **********************************************************************/
 
 #define RTT  16.0       /* round trip time.  MUST BE SET TO 16.0 when submitting assignment */
@@ -57,11 +57,11 @@ bool IsCorrupted(struct pkt packet)
 /********* Sender (A) variables and functions ************/
 
 static struct pkt buffer[WINDOWSIZE];  /* array for storing packets waiting for ACK */
-static int windowcount;                /* the number of packets currently awaiting an ACK */
-static int A_nextseqnum;               /* the next sequence number to be used by the sender */
-static int send_base;                  /* the base of the send window */
 static bool acked[WINDOWSIZE];         /* tracks which packets are ACKed */ 
 static int timer_ids[WINDOWSIZE];      /* timer ID for each packet */
+static int send_base;                  /* the base of the send window */
+static int A_nextseqnum;               /* the next sequence number to be used by the sender */
+static int windowcount;                /* the number of packets currently awaiting an ACK */
 
 /* called from layer 5 (application layer), passed the message to be sent to other side */
 void A_output(struct msg message)
@@ -118,7 +118,7 @@ void A_input(struct pkt packet)
   /* if received ACK is not corrupted */ 
   if (!IsCorrupted(packet)) {
     if (TRACE > 0)
-      printf("----A: uncorrupted ACK %d is received\n",packet.acknum);
+      printf("----A: uncorrupted ACK %d is received\n", packet.acknum);
     total_ACKs_received++;
 
     /* check if ACK is within current window */
@@ -173,11 +173,11 @@ void A_input(struct pkt packet)
       } 
     } else {
       if (TRACE > 0)
-        printf ("----A: duplicate ACK received, do nothing!\n");
+        printf("----A: duplicate ACK received, do nothing!\n");
     }
   } else {
     if (TRACE > 0)
-      printf ("----A: corrupted ACK is received, do nothing!\n");
+      printf("----A: corrupted ACK is received, do nothing!\n");
   }
 }
 
@@ -194,7 +194,7 @@ void A_timerinterrupt(void)
     index = (send_base + i) % SEQSPACE % WINDOWSIZE;
     if (!acked[index] && (send_base + i) % SEQSPACE != A_nextseqnum) {
       if (TRACE > 0)
-        printf ("---A: resending packet %d\n", (buffer[index]).seqnum);
+        printf("---A: resending packet %d\n", buffer[index].seqnum);
       
       tolayer3(A, buffer[index]);
       packets_resent++;
@@ -222,13 +222,12 @@ void A_init(void)
   }
 }
 
-
 /********* Receiver (B)  variables and procedures ************/
 
-static int B_nextseqnum;   /* the sequence number for the next packets sent by B */
-static struct pkt rcv_buffer[WINDOWSIZE]; /* buffer for out-of-order packets */
+static struct pkt rcv_buffer[WINDOWSIZE]; /* buffer for out-of-order packets */\
 static bool rcv_acked[WINDOWSIZE];        /* tracks which packets are in the buffer */
 static int rcv_base;                      /* base of the receive window */
+static int B_nextseqnum;                  /* the sequence number for the next packets sent by B */
 
 /* called from layer 3, when a packet arrives for layer 4 at B*/
 void B_input(struct pkt packet)
