@@ -93,7 +93,7 @@ void A_output(struct msg message)
     tolayer3 (A, sendpkt);
 
     /* In SR, start a timer for this specific packet */
-    timer_ids[buf_index] = sendpkt.seqnum;
+    timer_ids[buf_index] = A_nextseqnum;
     starttimer(A, RTT);
 
     /* get next sequence number, wrap back to 0 */
@@ -114,7 +114,7 @@ void A_output(struct msg message)
 */
 void A_input(struct pkt packet)
 {
-  int i;
+  int index;
 
   /* if received ACK is not corrupted */ 
   if (!IsCorrupted(packet)) {
@@ -129,17 +129,18 @@ void A_input(struct pkt packet)
          (packet.acknum >= send_base || packet.acknum <= (send_base + WINDOWSIZE - 1) % SEQSPACE))) {
       
       /* calculate buffer index */
-      i = packet.acknum % WINDOWSIZE;
+      index = packet.acknum % WINDOWSIZE;
 
-        if (acked[i]) {
-          if (TRACE > 0)
+      /* Check if the ACK is for a duplicate packet */
+      if (acked[index]) {
+        if (TRACE > 0)
           printf("----A: duplicate ACK received, do nothing!\n");
       } else {
         if (TRACE > 0)
           printf("----A: ACK %d is not a duplicate\n", packet.acknum);
         new_ACKs++;
         
-        acked[i] = true;
+        acked[index] = true;
         /* stop timer for this packet */
         stoptimer(A);
 
@@ -159,12 +160,12 @@ void A_input(struct pkt packet)
 
         /* restart timer for the new window */
         if (windowcount > 0) {
-          for (i = 0; i < windowcount; i++) {
-            int seqnum = (send_base + i) % WINDOWSIZE;
+          for (int i = 0; i < WINDOWSIZE; i++) {
+            int seqnum = (send_base + i) % SEQSPACE;
             if (seqnum == A_nextseqnum) 
               break;
-            i = seqnum % WINDOWSIZE;
-            if (!acked[i]) {
+            index = seqnum % WINDOWSIZE;
+            if (!acked[index]) {
               starttimer(A, RTT);
               break;
             }
@@ -173,7 +174,7 @@ void A_input(struct pkt packet)
       } 
     } else {
       if (TRACE > 0)
-        printf ("----A: ACK outside window, do nothing!\n");
+        printf ("----A: duplicate ACK received, do nothing!\n");
     }
   } else {
     if (TRACE > 0)
@@ -181,23 +182,22 @@ void A_input(struct pkt packet)
   }
 }
 
-
 /* called when A's timer goes off */
 void A_timerinterrupt(void)
 {
-  int i;
+  int index;
 
   if (TRACE > 0)
     printf("----A: time out,resend packets!\n");
 
   /* In SR, find the earliest unACKed packet and resend just that one */
-  for (i = 0; i < windowcount; i++) {
-    i = (send_base + i) % SEQSPACE % WINDOWSIZE;
-    if (!acked[i] && (send_base + i) % SEQSPACE != A_nextseqnum) {
+  for (int i = 0; i < WINDOWSIZE; i++) {
+    index = (send_base + i) % SEQSPACE % WINDOWSIZE;
+    if (!acked[index] && (send_base + i) % SEQSPACE != A_nextseqnum) {
       if (TRACE > 0)
-        printf ("---A: resending packet %d\n", (buffer[i]).seqnum);
+        printf ("---A: resending packet %d\n", (buffer[index]).seqnum);
       
-      tolayer3(A, buffer[i]);
+      tolayer3(A, buffer[index]);
       packets_resent++;
       starttimer(A, RTT);
       break;
@@ -243,11 +243,8 @@ void B_input(struct pkt packet)
     int rcv_last = (rcv_base + WINDOWSIZE - 1) % SEQSPACE;
 
     /* Check if the seqnum is within our receive window */ 
-    bool in_window = false;
-    if ((rcv_base <= rcv_last && packet.seqnum >= rcv_base && packet.seqnum <= rcv_last) ||
-        (rcv_base > rcv_last && (packet.seqnum >= rcv_base || packet.seqnum <= rcv_last))) {
-      in_window = true;
-    }
+    bool in_window = (rcv_base <= rcv_last && packet.seqnum >= rcv_base && packet.seqnum <= rcv_last) ||
+                     (rcv_base > rcv_last && (packet.seqnum >= rcv_base || packet.seqnum <= rcv_last));
 
     if (in_window) {
       /* SR: Accept packet in window and send ACK for it */
