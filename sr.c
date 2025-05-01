@@ -78,7 +78,7 @@ void A_output(struct msg message)
     /* create packet */
     sendpkt.seqnum = A_nextseqnum;
     sendpkt.acknum = NOTINUSE;
-    for ( i=0; i<20 ; i++ ) 
+    for (i=0; i<20; i++) 
       sendpkt.payload[i] = message.data[i];
     sendpkt.checksum = ComputeChecksum(sendpkt); 
 
@@ -90,7 +90,7 @@ void A_output(struct msg message)
     /* send out packet */
     if (TRACE > 0)
       printf("Sending packet %d to layer 3\n", sendpkt.seqnum);
-    tolayer3 (A, sendpkt);
+    tolayer3(A, sendpkt);
 
     /* In SR, start a timer for this specific packet */
     timer_ids[buf_index] = A_nextseqnum;
@@ -173,7 +173,7 @@ void A_input(struct pkt packet)
       } 
     } else {
       if (TRACE > 0)
-        printf("----A: duplicate ACK received, do nothing!\n");
+        printf("----A: ACK outside window, do nothing!\n");
     }
   } else {
     if (TRACE > 0)
@@ -187,7 +187,7 @@ void A_timerinterrupt(void)
   int index;
 
   if (TRACE > 0)
-    printf("----A: time out,resend packets!\n");
+    printf("----A: time out, resend packets!\n");
 
   /* In SR, find the earliest unACKed packet and resend just that one */
   for (int i = 0; i < WINDOWSIZE; i++) {
@@ -225,7 +225,7 @@ void A_init(void)
 /********* Receiver (B)  variables and procedures ************/
 
 static struct pkt rcv_buffer[WINDOWSIZE]; /* buffer for out-of-order packets */\
-static bool rcv_acked[WINDOWSIZE];        /* tracks which packets are in the buffer */
+static bool rcv_acked[WINDOWSIZE];        /* tracks which packets are received */
 static int rcv_base;                      /* base of the receive window */
 static int B_nextseqnum;                  /* the sequence number for the next packets sent by B */
 
@@ -255,11 +255,15 @@ void B_input(struct pkt packet)
       rcv_buffer[packet_index] = packet;
       rcv_acked[packet_index] = true;
 
+      /* Deliver in-order packets to layer 5 */
       if (packet.seqnum == rcv_base) {
         while (rcv_acked[rcv_base % WINDOWSIZE]) {
-          /* Deliver in-order packets to layer 5 */
           tolayer5(B, rcv_buffer[rcv_base % WINDOWSIZE].payload);
+          
+          /* Mark as not received for future use */
           rcv_acked[rcv_base % WINDOWSIZE] = false;
+          
+          /* Advance base */
           rcv_base = (rcv_base + 1) % SEQSPACE;
         }
       }
@@ -269,7 +273,7 @@ void B_input(struct pkt packet)
     } else {
       /* Packet is outside our window - could be a duplicate */
       if (TRACE > 0) 
-        printf("----B: packet corrupted or not expected sequence number, resend ACK!\n");
+        printf("----B: packet outside window, resend ACK!\n");
 
       /* For SR, still ACK this packet (even if it's before our window) */
       sendpkt.acknum = packet.seqnum;
@@ -291,15 +295,15 @@ void B_input(struct pkt packet)
   B_nextseqnum = (B_nextseqnum + 1) % 2;
 
   /* we don't have any data to send, fill payload with 0's */
-  for (i = 0; i < 20; i++) {
+  for (i = 0; i < 20; i++) {  
     sendpkt.payload[i] = '0';
+  }
 
   /* compute checksum */
   sendpkt.checksum = ComputeChecksum(sendpkt);
 
   /* send out packet */
   tolayer3(B, sendpkt);
-  }
 }
 
 /* the following routine will be called once (only) before any other */
@@ -308,8 +312,8 @@ void B_init(void)
 {
   int i;
 
-  B_nextseqnum = 1;
   rcv_base = 0;
+  B_nextseqnum = 1;
 
   /* Initialize receiver buffer */
   for (i = 0; i < WINDOWSIZE; i++) {
