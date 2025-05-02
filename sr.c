@@ -168,7 +168,8 @@ void A_timerinterrupt(void)
     printf("----A: time out, resend packets!\n");
 
   /* Timeout for the oldest unACKed packet (at send_base) */
-  int index = send_base % WINDOWSIZE;
+  int index;
+  index = send_base % WINDOWSIZE;
   
   /* Resend just the oldest unacknowledged packet */
   if (!acked[index]) {
