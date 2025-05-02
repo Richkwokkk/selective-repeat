@@ -164,11 +164,12 @@ void A_input(struct pkt packet)
 /* called when A's timer goes off */
 void A_timerinterrupt(void)
 {
+  int index;
+  
   if (TRACE > 0)
     printf("----A: time out, resend packets!\n");
 
   /* Timeout for the oldest unACKed packet (at send_base) */
-  int index;
   index = send_base % WINDOWSIZE;
   
   /* Resend just the oldest unacknowledged packet */
